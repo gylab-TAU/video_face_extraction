@@ -9,7 +9,7 @@ from datetime import datetime
 import math
 import matplotlib.pyplot as plt
 from os import path
-
+import random
 
 def show_multiple_images(images):
     def show(ax, image):
@@ -18,6 +18,7 @@ def show_multiple_images(images):
     fig = plt.figure(figsize=(15, 5))
 
     n = min(len(images), 10)
+    images = random.sample(images, n)
     axs = fig.subplots(1,n)
     for i in range(n):
         ax = axs[i]
@@ -89,7 +90,7 @@ def get_face_crop(frame, bb, frame_height, frame_width):
     return cv.resize(image, dsize=target_shape, interpolation=cv.INTER_CUBIC)
 
 
-def extract_tracks(video_file, tracks_file, track_ids, frames_dir, num_of_extracted_frames=20):
+def extract_tracks(video_file, tracks_file, labels, track_labels, frames_dir, num_of_extracted_frames=20):
     '''
     :return: Returns images of the given tracks ids, and extract first frame of every track for validation.
     '''
@@ -108,9 +109,9 @@ def extract_tracks(video_file, tracks_file, track_ids, frames_dir, num_of_extrac
             tid, area = face
             tid = int(tid)
             try:
-                if tid not in face_by_tracks:
-                    face_by_tracks[tid] = []
-                if tid in track_ids:
+                if track_labels[tid] not in face_by_tracks:
+                    face_by_tracks[track_labels[tid]] = []
+                if tid in labels:
                     if len(face_by_tracks[tid]) > num_of_extracted_frames:
                         continue
                 else:
@@ -124,7 +125,7 @@ def extract_tracks(video_file, tracks_file, track_ids, frames_dir, num_of_extrac
                     cv.imwrite(img_path, image)
                     saved_tracks_first_frame[tid] = True
 
-                face_by_tracks[tid].append(image)
+                face_by_tracks[track_labels[tid]].append(image)
             except Exception as e:
                 print('failed cropping face_crop image', e, '(track {0}, time {1})'.format(tid, timestamp))
 
@@ -141,7 +142,10 @@ def rename_labels(results, episode_name, suffix, data_dir, tracks_file, labels_f
         labels.extend(result.labels())
     print(f'need to tag {len(labels)} labels.')
 
-    faces_by_tracks = extract_tracks(video_file, tracks_file, labels, frames_dir)
+    track_labels = {}
+    for _, track_id, cluster in result.itertracks(yield_label=True):
+        track_labels[track_id] = cluster
+    faces_by_tracks = extract_tracks(video_file, tracks_file, labels, track_labels, frames_dir)
 
     mapping = {}
     for label in labels:
@@ -185,7 +189,7 @@ def main():
                         default='data/TheBigBangTheory.embedding.txt',
                         help='the pate of the embedding file')
     parser.add_argument('--tracks_path', metavar='tracks', type=str, nargs='?',
-                        default='data/TheBigBangTheory.tracks.txt',
+                        default='data/TheBigBangTheory.track.txt',
                         help='the pate of the embedding file')
     parser.add_argument('--labels_path', metavar='labels', type=str, nargs='?',
                         default='data/TheBigBangTheory.labels.txt',

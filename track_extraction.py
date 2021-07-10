@@ -61,15 +61,11 @@ def get_tracks_to_skip(labels, track_ids):
     return skip
 
 
-def read_tracks(tracks_file, labels):
+def read_tracks(tracks_file):
     separator = " "
     faces_by_time = {}
     with open(tracks_file) as f:
         lines = [line.split(separator) for line in f]
-        track_ids = list(set([line[1] for line in lines]))
-        skipping_track_ids = get_tracks_to_skip(labels, track_ids)
-        print('skipping track ids: ', skipping_track_ids)
-        lines = [line for line in lines if line[1] not in skipping_track_ids]
         for line in lines:
             (T, identifier, left, top, right, bottom, status) = line
             if T not in faces_by_time:
@@ -78,11 +74,11 @@ def read_tracks(tracks_file, labels):
     return faces_by_time
 
 
-def extract_tracks(video_file, tracks_file, labels, tracks_output_file, output_dir, visualize, model, cuda, feature_size):
+def extract_tracks(video_file, tracks_file, labels, tracks_output_file, output_dir, visualize, model, cuda, feature_size, frames_only):
     video = Video(video_file)
     frame_width, frame_height = video.frame_size
 
-    face_by_time = read_tracks(tracks_file, labels)
+    face_by_time = read_tracks(tracks_file)
     last_frame_faces = []
     track_frames = {}
     for timestamp, rgb in video:
@@ -113,15 +109,21 @@ def extract_tracks(video_file, tracks_file, labels, tracks_output_file, output_d
             except Exception as e:
                 print('failed writing face_crop image', e, '(track {0}, time {1})'.format(tid, timestamp))
 
-    with open('tracks_frames.data', 'wb') as frames_file:
-        pickle.dump(track_frames, frames_file)
-    save_track_features(track_frames, labels, tracks_output_file, model, cuda, feature_size)
+    if not frames_only:
+        save_track_features(track_frames, labels, tracks_output_file, model, cuda, feature_size)
 
 
 def save_track_features(track_frames, labels, tracks_output_file, model, cuda, features_size):
     t = Tracks(features_size)
     features_extractor = Img2Vec(cuda=cuda, model=model, layer_output_size=features_size)
+
+    track_ids = list(track_frames.keys())
+    skipping_track_ids = get_tracks_to_skip(labels, track_ids)
+    print('skipping track ids: ', skipping_track_ids)
+
     for tid in track_frames:
+        if tid in skipping_track_ids:
+            continue
         track_images = []
         timestamp, img_path = track_frames[tid][0]
         print(f'track {tid}: {timestamp} start extracting features')
@@ -157,10 +159,10 @@ def main():
     parser.add_argument('--labels', metavar='labels', type=str, nargs='?',
                         default='',
                         help='the path of the labels file')
-    parser.add_argument('--track_frames_path', metavar='track_frames_path', type=str, nargs='?',
-                        help='the path of the labels file')
     parser.add_argument('--model', metavar='model', type=str, nargs='?', default='resnet50',
                         help='the model we want to use for feature extraction')
+    parser.add_argument('--frames_only', action='store_true', default=False,
+                        help='extract frames images only, without extracting features of each frame')
     parser.add_argument('--visualize', action='store_true', default=False)
     parser.add_argument('--cuda', action='store_true', default=False)
     parser.add_argument('--feature_size', type=int, default=2048)
@@ -182,12 +184,7 @@ def main():
     print('track extraction writing output to:\n\t', tracks_output_path)
     labels = get_tracks_labels(labels_file)
 
-    if args.track_frames_path is not None:
-        with open(args.track_frames_path, 'rb') as track_frames_file:
-            track_frames = pickle.load(track_frames_file)
-            save_track_features(track_frames, labels, tracks_output_file, args.model, args.cuda, args.feature_size)
-    else:
-        extract_tracks(video_file, tracks_file, labels, tracks_output_path, output_dir, args.visualize, args.model, args.cuda, args.feature_size)
+    extract_tracks(video_file, tracks_file, labels, tracks_output_path, output_dir, args.visualize, args.model, args.cuda, args.feature_size, args.frames_only)
 
 
 if __name__ == '__main__':
